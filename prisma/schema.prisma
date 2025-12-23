@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Admin {
+  admin_id      String   @id @default(uuid())
+  username      String   @unique
+  password_hash String
+  created_at    DateTime @default(now())
+  updated_at    DateTime @default(now())
+  logs          Log[]
+}
+
+model User {
+  user_id       String         @id @default(uuid())
+  first_name    String
+  last_name     String
+  id_card       String
+  phone         String?
+  username      String         @unique
+  password_hash String
+  token         String?
+  created_at    DateTime       @default(now())
+  updated_at    DateTime       @default(now())
+  deleted_at    DateTime?
+  logs          Log[]
+  notifications Notification[]
+  reservations  Reservation[]
+}
+
+model Car {
+  car_id        String        @id @default(uuid())
+  license_plate String        @unique
+  brand         String?
+  model         String?
+  year          Int?
+  color         String?
+  price_per_day Float?
+  status        String        @default("available")
+  created_at    DateTime      @default(now())
+  updated_at    DateTime      @default(now())
+  reservations  Reservation[]
+}
+
+model Reservation {
+  reservation_id  String            @id @default(uuid())
+  user_id         String
+  car_id          String
+  start_date      DateTime
+  end_date        DateTime
+  status          String            @default("pending")
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @default(now())
+  checkinCheckout CheckinCheckout[]
+  notifications   Notification[]
+  payments        Payment[]
+  car             Car               @relation(fields: [car_id], references: [car_id])
+  user            User              @relation(fields: [user_id], references: [user_id])
+}
+
+model CheckinCheckout {
+  id             String      @id @default(uuid())
+  reservation_id String
+  checkin_time   DateTime?
+  checkout_time  DateTime?
+  status         String?
+  reservation    Reservation @relation(fields: [reservation_id], references: [reservation_id])
+}
+
+model Notification {
+  notification_id String       @id @default(uuid())
+  user_id         String
+  reservation_id  String?
+  message         String
+  type            String?
+  status          String       @default("unread")
+  created_at      DateTime     @default(now())
+  reservation     Reservation? @relation(fields: [reservation_id], references: [reservation_id])
+  user            User         @relation(fields: [user_id], references: [user_id])
+}
+
+model Payment {
+  payment_id     String      @id @default(uuid())
+  reservation_id String
+  amount         Float
+  method         String?
+  status         String      @default("pending")
+  paid_at        DateTime?
+  created_at     DateTime    @default(now())
+  reservation    Reservation @relation(fields: [reservation_id], references: [reservation_id])
+}
+
+model Log {
+  log_id     String   @id @default(uuid())
+  user_id    String?
+  admin_id   String?
+  action     String?
+  table_name String?
+  record_id  String?
+  created_at DateTime @default(now())
+  admin      Admin?   @relation(fields: [admin_id], references: [admin_id])
+  user       User?    @relation(fields: [user_id], references: [user_id])
+}
+
+model admins {
+  admin_id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  username           String    @unique @db.VarChar(50)
+  password_hash      String    @db.VarChar(255)
+  two_factor_enabled Boolean?  @default(false)
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
+  updated_at         DateTime? @default(now()) @db.Timestamp(6)
+  logs               logs[]
+}
+
+model cars {
+  car_id        String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  license_plate String         @unique @db.VarChar(20)
+  brand         String?        @db.VarChar(50)
+  model         String?        @db.VarChar(50)
+  year          Int?
+  color         String?        @db.VarChar(20)
+  price_per_day Decimal        @db.Decimal(10, 2)
+  status        String?        @default("available") @db.VarChar(20)
+  created_at    DateTime?      @default(now()) @db.Timestamp(6)
+  updated_at    DateTime?      @default(now()) @db.Timestamp(6)
+  deleted_at    DateTime?      @db.Timestamp(6)
+  reservations  reservations[]
+  reviews       reviews[]
+}
+
+model checkin_checkout {
+  id             String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  reservation_id String       @db.Uuid
+  checkin_time   DateTime?    @db.Timestamp(6)
+  checkout_time  DateTime?    @db.Timestamp(6)
+  status         String?      @db.VarChar(20)
+  reservations   reservations @relation(fields: [reservation_id], references: [reservation_id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model logs {
+  log_id     String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id    String?   @db.Uuid
+  admin_id   String?   @db.Uuid
+  action     String?
+  table_name String?   @db.VarChar(50)
+  record_id  String?   @db.Uuid
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  admins     admins?   @relation(fields: [admin_id], references: [admin_id], onUpdate: NoAction)
+  users      users?    @relation(fields: [user_id], references: [user_id], onUpdate: NoAction)
+
+  @@index([admin_id], map: "idx_logs_admin_id")
+  @@index([user_id], map: "idx_logs_user_id")
+}
+
+model notifications {
+  notification_id String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id         String        @db.Uuid
+  reservation_id  String?       @db.Uuid
+  message         String
+  type            String?       @db.VarChar(50)
+  status          String?       @default("unread") @db.VarChar(20)
+  created_at      DateTime?     @default(now()) @db.Timestamp(6)
+  reservations    reservations? @relation(fields: [reservation_id], references: [reservation_id], onUpdate: NoAction)
+  users           users         @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id], map: "idx_notifications_user_id")
+}
+
+model payments {
+  payment_id     String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  reservation_id String       @db.Uuid
+  amount         Decimal      @db.Decimal(10, 2)
+  method         String?      @db.VarChar(50)
+  status         String?      @default("pending") @db.VarChar(20)
+  paid_at        DateTime?    @db.Timestamp(6)
+  created_at     DateTime?    @default(now()) @db.Timestamp(6)
+  reservations   reservations @relation(fields: [reservation_id], references: [reservation_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([reservation_id], map: "idx_payments_reservation_id")
+}
+
+model reservations {
+  reservation_id   String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id          String             @db.Uuid
+  car_id           String             @db.Uuid
+  start_date       DateTime           @db.Date
+  end_date         DateTime           @db.Date
+  status           String?            @default("pending") @db.VarChar(20)
+  total_price      Decimal?           @db.Decimal(10, 2)
+  created_at       DateTime?          @default(now()) @db.Timestamp(6)
+  updated_at       DateTime?          @default(now()) @db.Timestamp(6)
+  deleted_at       DateTime?          @db.Timestamp(6)
+  checkin_checkout checkin_checkout[]
+  notifications    notifications[]
+  payments         payments[]
+  cars             cars               @relation(fields: [car_id], references: [car_id], onDelete: Cascade, onUpdate: NoAction)
+  users            users              @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([car_id], map: "idx_reservations_car_id")
+  @@index([user_id], map: "idx_reservations_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model reviews {
+  review_id  String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id    String    @db.Uuid
+  car_id     String    @db.Uuid
+  rating     Int
+  comment    String?
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  cars       cars      @relation(fields: [car_id], references: [car_id], onDelete: Cascade, onUpdate: NoAction)
+  users      users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([car_id], map: "idx_reviews_car_id")
+}
+
+model users {
+  user_id       String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  first_name    String          @db.VarChar(100)
+  last_name     String          @db.VarChar(100)
+  id_card       String          @db.VarChar(20)
+  phone         String?         @db.VarChar(20)
+  username      String          @unique @db.VarChar(50)
+  password_hash String          @db.VarChar(255)
+  token         String?         @db.VarChar(255)
+  role          String?         @default("user") @db.VarChar(20)
+  created_at    DateTime?       @default(now()) @db.Timestamp(6)
+  updated_at    DateTime?       @default(now()) @db.Timestamp(6)
+  deleted_at    DateTime?       @db.Timestamp(6)
+  logs          logs[]
+  notifications notifications[]
+  reservations  reservations[]
+  reviews       reviews[]
+}

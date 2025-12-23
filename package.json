@@ -1,0 +1,51 @@
+{
+  "name": "car-rental-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "format": "prettier --write \"**/*.js\"",
+    "start": "babel-node index.js",
+    "start:dev": "nodemon",
+    "studio": "prisma studio --port 5560",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev --name init",
+    "db:push": "prisma db push",
+    "db:reset": "prisma migrate reset -f",
+    "seed": "node prisma/seed.js",
+    "dev:all": "concurrently -k -n API,STUDIO -c auto \"npm run start:dev\" \"npm run studio\"",
+    "test": "jest",
+    "test:cov": "jest --coverage",
+    "test:e2e": "jest --config ./test/jest-e2e.json"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.9",
+    "@nestjs/core": "^11.1.9",
+    "@nestjs/platform-express": "^11.1.9",
+    "@prisma/adapter-pg": "^7.1.0",
+    "@prisma/client": "^7.2.0",
+    "all": "^0.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "pdfkit": "^0.17.2",
+    "pg": "^8.16.3",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "soap": "^1.6.1",
+    "undici": "^7.1.0",
+    "xss-clean": "^0.1.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.2",
+    "concurrently": "^9.2.1",
+    "nodemon": "^3.1.11",
+    "prisma": "^7.2.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
