@@ -1,151 +1,227 @@
 import express from "express";
 import prisma from "../prismaClient.js";
 import { authenticate } from "../middleware/auth.middleware.js";
+import omise from "../config/omise.js";
 
 const router = express.Router();
 
 /* =====================================================
-   USER CONFIRM PAYMENT
+   CREATE PROMPTPAY QR (OMISE)
 ===================================================== */
 router.post("/confirm", authenticate, async (req, res) => {
   try {
-    const { reservationId, method } = req.body;
+    const { reservationId } = req.body;
 
-    if (!reservationId || !method)
-      return res.status(400).json({ message: "Missing payment data" });
+    if (!reservationId)
+      return res.status(400).json({ message: "Missing reservationId" });
 
-    const validMethods = ["CASH", "TRANSFER", "CREDIT_CARD", "QR"];
-    if (!validMethods.includes(method))
-      return res.status(400).json({ message: "Invalid payment method" });
-
-    await prisma.$transaction(async (tx) => {
-
-      const reservation = await tx.reservation.findUnique({
-        where: { id: Number(reservationId) },
-        include: { payment: true }
-      });
-
-      if (!reservation)
-        throw new Error("NOT_FOUND");
-
-      if (reservation.userId !== req.user.id)
-        throw new Error("FORBIDDEN");
-
-      console.log("RES STATUS:", reservation.status);
-      console.log("PAY STATUS:", reservation.payment?.status);
-
-      /* =====================================================
-         PRODUCTION SAFE VALIDATION
-      ===================================================== */
-
-      // 🔹 ถ้าจ่ายแล้ว → idempotent
-      if (reservation.payment?.status === "PAID") {
-        return;
-      }
-
-      // 🔹 ถ้ากำลังรอ verify → idempotent
-      if (reservation.payment?.status === "WAITING_VERIFY") {
-        return;
-      }
-
-      // 🔹 กรณี WAITING_PAYMENT แต่ไม่มี payment record (legacy fix)
-      if (
-        reservation.status === "WAITING_PAYMENT" &&
-        !reservation.payment
-      ) {
-        // ปล่อยให้ flow ด้านล่างสร้าง payment ใหม่
-      }
-      else if (reservation.status !== "PENDING") {
-        throw new Error("INVALID_STATUS");
-      }
-
-      // 🔹 เช็คหมดเวลา
-      if (
-        reservation.lockExpiresAt &&
-        reservation.lockExpiresAt < new Date()
-      ) {
-        throw new Error("EXPIRED");
-      }
-
-      /* =====================================================
-         CREATE OR UPDATE PAYMENT
-      ===================================================== */
-
-      if (!reservation.payment) {
-        await tx.payment.create({
-          data: {
-            reservationId: reservation.id,
-            method,
-            amount: reservation.totalPrice,
-            status: "WAITING_VERIFY"
-          }
-        });
-      } else {
-        await tx.payment.update({
-          where: { reservationId: reservation.id },
-          data: {
-            method,
-            status: "WAITING_VERIFY"
-          }
-        });
-      }
-
-      await tx.reservation.update({
-        where: { id: reservation.id },
-        data: { status: "WAITING_PAYMENT" }
-      });
-
+    const reservation = await prisma.reservation.findUnique({
+      where: { id: Number(reservationId) },
+      include: { payment: true }
     });
 
-    res.json({ message: "Waiting for admin verification" });
+    if (!reservation)
+      return res.status(404).json({ message: "Reservation not found" });
 
-  } catch (err) {
+    if (reservation.userId !== req.user.id)
+      return res.status(403).json({ message: "Not your reservation" });
 
-    const map = {
-      NOT_FOUND: [404, "Reservation not found"],
-      FORBIDDEN: [403, "Not your reservation"],
-      INVALID_STATUS: [400, "Invalid reservation status"],
-      EXPIRED: [400, "Reservation expired"]
-    };
+    if (!["PENDING", "WAITING_PAYMENT"].includes(reservation.status))
+      return res.status(400).json({ message: "Invalid reservation status" });
 
-    if (map[err.message])
-      return res.status(map[err.message][0]).json({
-        message: map[err.message][1]
+    if (
+      reservation.lockExpiresAt &&
+      reservation.lockExpiresAt < new Date()
+    )
+      return res.status(400).json({ message: "Reservation expired" });
+
+    // ✅ ถ้าเคยสร้าง QR แล้ว → return ของเดิม (กันยิงซ้ำ)
+    if (
+      reservation.payment &&
+      reservation.payment.status === "PENDING" &&
+      reservation.payment.omiseChargeId
+    ) {
+      const charge = await omise.charges.retrieve(
+        reservation.payment.omiseChargeId
+      );
+
+      return res.json({
+        qrImage:
+          charge?.source?.scannable_code?.image?.download_uri,
+        expiresAt: charge?.source?.scannable_code?.expires_at
+      });
+    }
+
+    // 🔥 convert to satang
+    const amount = Math.round(reservation.totalPrice * 100);
+
+    if (amount < 2000)
+      return res.status(400).json({
+        message: "Minimum payment is 20 THB"
       });
 
+    console.log("Creating Omise source with amount:", amount);
+
+    const source = await omise.sources.create({
+      type: "promptpay",
+      amount,
+      currency: "thb"
+    });
+
+    const charge = await omise.charges.create({
+      amount,
+      currency: "thb",
+      source: source.id,
+      description: `Reservation #${reservation.id}`
+    });
+
+    console.log("Charge created:", charge.id);
+
+    const qrImage =
+      charge?.source?.scannable_code?.image?.download_uri;
+
+    if (!qrImage)
+      return res.status(500).json({
+        message: "QR generation failed"
+      });
+
+    // 🔥 UPSERT PAYMENT
+    await prisma.payment.upsert({
+      where: { reservationId: reservation.id },
+      update: {
+        status: "PENDING",
+        omiseChargeId: charge.id,
+        gateway: "OMISE"
+      },
+      create: {
+        reservationId: reservation.id,
+        method: "QR",
+        amount: reservation.totalPrice,
+        status: "PENDING",
+        omiseChargeId: charge.id,
+        gateway: "OMISE"
+      }
+    });
+
+    await prisma.reservation.update({
+      where: { id: reservation.id },
+      data: { status: "WAITING_PAYMENT" }
+    });
+
+    return res.json({
+      qrImage,
+      expiresAt: charge.source?.scannable_code?.expires_at
+    });
+
+  } catch (err) {
     console.error("CONFIRM ERROR:", err);
     res.status(500).json({ message: "Payment failed" });
   }
 });
 
+
 /* =====================================================
-   ADMIN APPROVE PAYMENT
+   OMISE WEBHOOK (AUTO CONFIRM)
 ===================================================== */
+router.post("/webhook", async (req, res) => {
+  try {
+    const event = req.body;
+
+    if (event.key !== "charge.complete")
+      return res.sendStatus(200);
+
+    const charge = event.data;
+
+    if (charge.status !== "successful")
+      return res.sendStatus(200);
+
+    const payment = await prisma.payment.findUnique({
+      where: { omiseChargeId: charge.id }
+    });
+
+    if (!payment || payment.status === "PAID")
+      return res.sendStatus(200);
+
+    await prisma.$transaction(async (tx) => {
+
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: "PAID",
+          paidAt: new Date()
+        }
+      });
+
+      const reservation = await tx.reservation.update({
+        where: { id: payment.reservationId },
+        data: { status: "CONFIRMED" }
+      });
+
+      await tx.car.update({
+        where: { id: reservation.carId },
+        data: { status: "BOOKED" }
+      });
+
+    });
+
+    console.log("Payment confirmed:", charge.id);
+
+    res.sendStatus(200);
+
+  } catch (err) {
+    console.error("WEBHOOK ERROR:", err);
+    res.sendStatus(500);
+  } 
+});
+
+/* =====================================================
+   CHECK PAYMENT STATUS (POLLING)
+===================================================== */
+router.get("/status/:reservationId", authenticate, async (req, res) => {
+  try {
+    const reservationId = Number(req.params.reservationId);
+
+    const reservation = await prisma.reservation.findUnique({
+      where: { id: reservationId },
+      include: { payment: true }
+    });
+
+    if (!reservation)
+      return res.status(404).json({ message: "Not found" });
+
+    return res.json({
+      reservationStatus: reservation.status,
+      paymentStatus: reservation.payment?.status || null
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: "Status check failed" });
+  }
+});
+
+
 router.post(
   "/admin/approve/:reservationId",
   authenticate,
   async (req, res) => {
     try {
-
       if (req.user.role !== "ADMIN")
         return res.status(403).json({ message: "Unauthorized" });
 
       const reservationId = Number(req.params.reservationId);
 
+      const reservation = await prisma.reservation.findUnique({
+        where: { id: reservationId },
+        include: { payment: true }
+      });
+
+      if (!reservation || !reservation.payment)
+        return res.status(404).json({ message: "Payment not found" });
+
+      if (reservation.payment.status === "PAID")
+        return res.json({ message: "Already approved" });
+
       await prisma.$transaction(async (tx) => {
-
-        const reservation = await tx.reservation.findUnique({
-          where: { id: reservationId },
-          include: { payment: true }
-        });
-
-        if (!reservation || !reservation.payment)
-          throw new Error("NOT_FOUND");
-
-        // 🔁 idempotent approve
-        if (reservation.payment.status === "PAID") {
-          return;
-        }
 
         await tx.payment.update({
           where: { reservationId },
@@ -170,10 +246,6 @@ router.post(
       res.json({ message: "Payment approved" });
 
     } catch (err) {
-
-      if (err.message === "NOT_FOUND")
-        return res.status(404).json({ message: "Payment not found" });
-
       console.error("APPROVE ERROR:", err);
       res.status(500).json({ message: "Approval failed" });
     }

@@ -153,8 +153,9 @@ model Payment {
   method        PaymentMethod
   status        PaymentStatus @default(PENDING)
 
-  transactionId String?
+  omiseChargeId String? @unique
   gateway       String?
+  transactionId String?
 
   paidAt        DateTime?
 
@@ -293,12 +294,12 @@ enum PaymentMethod {
 }
 
 enum PaymentStatus {
-  PENDING
+  PENDING //รอดำเนินการ
   WAITING_VERIFY   // ลูกค้ากดยืนยันแล้ว รอแอดมินเช็ค
-  PAID
-  FAILED
-  REFUNDED
-  EXPIRED
+  PAID //จ่ายแล้ว
+  FAILED //ล้มเหลว
+  REFUNDED //คืนเงินแล้ว
+  EXPIRED //หมดอายุแล้ว
 }
 
 
