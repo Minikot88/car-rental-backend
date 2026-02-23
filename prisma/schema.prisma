@@ -6,233 +6,330 @@ datasource db {
   provider = "postgresql"
 }
 
-model Admin {
-  admin_id      String   @id @default(uuid())
-  username      String   @unique
-  password_hash String
-  created_at    DateTime @default(now())
-  updated_at    DateTime @default(now())
-  logs          Log[]
-}
+//////////////////////////////////////////////////////
+// USER
+//////////////////////////////////////////////////////
 
 model User {
-  user_id       String         @id @default(uuid())
-  first_name    String
-  last_name     String
-  id_card       String
-  phone         String?
-  username      String         @unique
-  password_hash String
-  token         String?
-  created_at    DateTime       @default(now())
-  updated_at    DateTime       @default(now())
-  deleted_at    DateTime?
-  logs          Log[]
-  notifications Notification[]
-  reservations  Reservation[]
+  id         Int      @id @default(autoincrement())
+  username   String   @unique
+  name       String
+  surname    String
+  address    String
+  phone      String   @unique
+  password   String   @db.VarChar(255)
+
+  role       Role     @default(USER)
+  status     String   @default("active")
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deletedAt  DateTime?
+
+  reservations   Reservation[]
+  notifications  Notification[]
+  logs           Log[]
+  reviews        Review[]
+  discountUsages DiscountUsage[]
+
+  @@index([role])
+  @@index([status])
+  @@index([deletedAt])
 }
+
+//////////////////////////////////////////////////////
+// CAR
+//////////////////////////////////////////////////////
 
 model Car {
-  car_id        String        @id @default(uuid())
-  license_plate String        @unique
-  brand         String?
-  model         String?
-  year          Int?
-  color         String?
-  price_per_day Float?
-  status        String        @default("available")
-  created_at    DateTime      @default(now())
-  updated_at    DateTime      @default(now())
-  reservations  Reservation[]
+  id           Int           @id @default(autoincrement())
+
+  name         String
+  brand        String
+  model        String
+  year         Int           @db.SmallInt
+  color        String?
+
+  transmission Transmission
+  seats        Int
+  category     CarCategory
+  fuelType     FuelType
+  mileage      Int?
+
+  pricePerDay  Float
+  deposit      Float?
+
+  image        String?
+  images       String[]
+  description  String?
+  features     String[]
+
+  status       CarStatus     @default(AVAILABLE)
+  location     String?
+  deletedAt    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  reservations Reservation[]
+  reviews      Review[]
+
+  @@index([status])
+  @@index([category])
+  @@index([deletedAt])
 }
 
+//////////////////////////////////////////////////////
+// RESERVATION
+//////////////////////////////////////////////////////
+
 model Reservation {
-  reservation_id  String            @id @default(uuid())
-  user_id         String
-  car_id          String
-  start_date      DateTime
-  end_date        DateTime
-  status          String            @default("pending")
-  created_at      DateTime          @default(now())
-  updated_at      DateTime          @default(now())
-  checkinCheckout CheckinCheckout[]
-  notifications   Notification[]
-  payments        Payment[]
-  car             Car               @relation(fields: [car_id], references: [car_id])
-  user            User              @relation(fields: [user_id], references: [user_id])
+  id              Int               @id @default(autoincrement())
+
+  userId          Int
+  carId           Int
+
+  startDate       DateTime
+  endDate         DateTime
+
+  totalPrice      Float
+  status          ReservationStatus @default(PENDING)
+
+  pickupLocation  String
+  dropoffLocation String
+  pickupTime      DateTime?
+  dropoffTime     DateTime?
+
+  discountId      Int?
+  discountAmount  Float?
+
+  lockExpiresAt   DateTime?
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  deletedAt       DateTime?
+
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  car             Car               @relation(fields: [carId], references: [id], onDelete: Cascade)
+  payment         Payment?
+  discount        Discount?         @relation(fields: [discountId], references: [id])
+  
+  checkinCheckout CheckinCheckout?
+
+  @@index([carId, startDate, endDate])
+  @@index([status, lockExpiresAt])
+  @@index([carId, status, deletedAt])
+  @@index([deletedAt])
 }
 
 model CheckinCheckout {
-  id             String      @id @default(uuid())
-  reservation_id String
-  checkin_time   DateTime?
-  checkout_time  DateTime?
-  status         String?
-  reservation    Reservation @relation(fields: [reservation_id], references: [reservation_id])
+  id             Int      @id @default(autoincrement())
+  reservationId  Int      @unique
+  checkInTime    DateTime?
+  checkOutTime   DateTime?
+  fuelLevel      String?
+  mileageBefore  Int?
+  mileageAfter   Int?
+  beforePhotos   String[]
+  afterPhotos    String[]
+  damageReport   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
 }
 
-model Notification {
-  notification_id String       @id @default(uuid())
-  user_id         String
-  reservation_id  String?
-  message         String
-  type            String?
-  status          String       @default("unread")
-  created_at      DateTime     @default(now())
-  reservation     Reservation? @relation(fields: [reservation_id], references: [reservation_id])
-  user            User         @relation(fields: [user_id], references: [user_id])
-}
+
+
+//////////////////////////////////////////////////////
+// PAYMENT
+//////////////////////////////////////////////////////
 
 model Payment {
-  payment_id     String      @id @default(uuid())
-  reservation_id String
-  amount         Float
-  method         String?
-  status         String      @default("pending")
-  paid_at        DateTime?
-  created_at     DateTime    @default(now())
-  reservation    Reservation @relation(fields: [reservation_id], references: [reservation_id])
+  id            Int           @id @default(autoincrement())
+
+  reservationId Int           @unique
+  amount        Float
+
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+
+  transactionId String?
+  gateway       String?
+
+  paidAt        DateTime?
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  reservation   Reservation   @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([transactionId])
 }
+
+//////////////////////////////////////////////////////
+// DISCOUNT
+//////////////////////////////////////////////////////
+
+model Discount {
+  id            Int        @id @default(autoincrement())
+  code          String     @unique
+
+  type          DiscountType
+  value         Float
+  maxDiscount   Float?
+  minSpend      Float?
+
+  usageLimit    Int?
+  usedCount     Int        @default(0)
+  perUserLimit  Int?
+
+  startDate     DateTime?
+  endDate       DateTime?
+
+  isActive      Boolean    @default(true)
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  reservations  Reservation[]
+  usages        DiscountUsage[]
+
+  @@index([isActive])
+  @@index([startDate, endDate])
+}
+
+model DiscountUsage {
+  id          Int      @id @default(autoincrement())
+  discountId  Int
+  userId      Int
+  usedCount   Int      @default(0)
+
+  discount    Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([discountId, userId])
+}
+
+//////////////////////////////////////////////////////
+// REVIEW
+//////////////////////////////////////////////////////
+
+model Review {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  carId     Int
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  car       Car      @relation(fields: [carId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, carId])
+  @@index([carId])
+  @@index([deletedAt])
+}
+
+//////////////////////////////////////////////////////
+// NOTIFICATION
+//////////////////////////////////////////////////////
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+}
+
+//////////////////////////////////////////////////////
+// LOG
+//////////////////////////////////////////////////////
 
 model Log {
-  log_id     String   @id @default(uuid())
-  user_id    String?
-  admin_id   String?
-  action     String?
-  table_name String?
-  record_id  String?
-  created_at DateTime @default(now())
-  admin      Admin?   @relation(fields: [admin_id], references: [admin_id])
-  user       User?    @relation(fields: [user_id], references: [user_id])
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  action    String
+  detail    String?
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
-model admins {
-  admin_id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  username           String    @unique @db.VarChar(50)
-  password_hash      String    @db.VarChar(255)
-  two_factor_enabled Boolean?  @default(false)
-  created_at         DateTime? @default(now()) @db.Timestamp(6)
-  updated_at         DateTime? @default(now()) @db.Timestamp(6)
-  logs               logs[]
+//////////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////////
+
+enum Role {
+  USER
+  ADMIN
 }
 
-model cars {
-  car_id        String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  license_plate String         @unique @db.VarChar(20)
-  brand         String?        @db.VarChar(50)
-  model         String?        @db.VarChar(50)
-  year          Int?
-  color         String?        @db.VarChar(20)
-  price_per_day Decimal        @db.Decimal(10, 2)
-  status        String?        @default("available") @db.VarChar(20)
-  created_at    DateTime?      @default(now()) @db.Timestamp(6)
-  updated_at    DateTime?      @default(now()) @db.Timestamp(6)
-  deleted_at    DateTime?      @db.Timestamp(6)
-  reservations  reservations[]
-  reviews       reviews[]
+enum ReservationStatus {
+  PENDING          // สร้างแล้ว รอจ่าย
+  WAITING_PAYMENT  // ล็อครถไว้ รอชำระ
+  CONFIRMED        // จ่ายแล้ว
+  CANCELLED
+  COMPLETED
+  EXPIRED          // หมดเวลาชำระ
 }
 
-model checkin_checkout {
-  id             String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  reservation_id String       @db.Uuid
-  checkin_time   DateTime?    @db.Timestamp(6)
-  checkout_time  DateTime?    @db.Timestamp(6)
-  status         String?      @db.VarChar(20)
-  reservations   reservations @relation(fields: [reservation_id], references: [reservation_id], onDelete: Cascade, onUpdate: NoAction)
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  CREDIT_CARD
+  QR
 }
 
-model logs {
-  log_id     String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  user_id    String?   @db.Uuid
-  admin_id   String?   @db.Uuid
-  action     String?
-  table_name String?   @db.VarChar(50)
-  record_id  String?   @db.Uuid
-  created_at DateTime? @default(now()) @db.Timestamp(6)
-  admins     admins?   @relation(fields: [admin_id], references: [admin_id], onUpdate: NoAction)
-  users      users?    @relation(fields: [user_id], references: [user_id], onUpdate: NoAction)
-
-  @@index([admin_id], map: "idx_logs_admin_id")
-  @@index([user_id], map: "idx_logs_user_id")
+enum PaymentStatus {
+  PENDING
+  WAITING_VERIFY   // ลูกค้ากดยืนยันแล้ว รอแอดมินเช็ค
+  PAID
+  FAILED
+  REFUNDED
+  EXPIRED
 }
 
-model notifications {
-  notification_id String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  user_id         String        @db.Uuid
-  reservation_id  String?       @db.Uuid
-  message         String
-  type            String?       @db.VarChar(50)
-  status          String?       @default("unread") @db.VarChar(20)
-  created_at      DateTime?     @default(now()) @db.Timestamp(6)
-  reservations    reservations? @relation(fields: [reservation_id], references: [reservation_id], onUpdate: NoAction)
-  users           users         @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([user_id], map: "idx_notifications_user_id")
+enum Transmission {
+  AUTO
+  MANUAL
 }
 
-model payments {
-  payment_id     String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  reservation_id String       @db.Uuid
-  amount         Decimal      @db.Decimal(10, 2)
-  method         String?      @db.VarChar(50)
-  status         String?      @default("pending") @db.VarChar(20)
-  paid_at        DateTime?    @db.Timestamp(6)
-  created_at     DateTime?    @default(now()) @db.Timestamp(6)
-  reservations   reservations @relation(fields: [reservation_id], references: [reservation_id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([reservation_id], map: "idx_payments_reservation_id")
+enum CarCategory {
+  SEDAN
+  SUV
+  VAN
+  PICKUP
+  HATCHBACK
+  EV
 }
 
-model reservations {
-  reservation_id   String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  user_id          String             @db.Uuid
-  car_id           String             @db.Uuid
-  start_date       DateTime           @db.Date
-  end_date         DateTime           @db.Date
-  status           String?            @default("pending") @db.VarChar(20)
-  total_price      Decimal?           @db.Decimal(10, 2)
-  created_at       DateTime?          @default(now()) @db.Timestamp(6)
-  updated_at       DateTime?          @default(now()) @db.Timestamp(6)
-  deleted_at       DateTime?          @db.Timestamp(6)
-  checkin_checkout checkin_checkout[]
-  notifications    notifications[]
-  payments         payments[]
-  cars             cars               @relation(fields: [car_id], references: [car_id], onDelete: Cascade, onUpdate: NoAction)
-  users            users              @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([car_id], map: "idx_reservations_car_id")
-  @@index([user_id], map: "idx_reservations_user_id")
+enum FuelType {
+  GASOLINE
+  DIESEL
+  HYBRID
+  ELECTRIC
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model reviews {
-  review_id  String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  user_id    String    @db.Uuid
-  car_id     String    @db.Uuid
-  rating     Int
-  comment    String?
-  created_at DateTime? @default(now()) @db.Timestamp(6)
-  cars       cars      @relation(fields: [car_id], references: [car_id], onDelete: Cascade, onUpdate: NoAction)
-  users      users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([car_id], map: "idx_reviews_car_id")
+enum CarStatus {
+  AVAILABLE
+  BOOKED
+  MAINTENANCE
 }
 
-model users {
-  user_id       String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  first_name    String          @db.VarChar(100)
-  last_name     String          @db.VarChar(100)
-  id_card       String          @db.VarChar(20)
-  phone         String?         @db.VarChar(20)
-  username      String          @unique @db.VarChar(50)
-  password_hash String          @db.VarChar(255)
-  token         String?         @db.VarChar(255)
-  role          String?         @default("user") @db.VarChar(20)
-  created_at    DateTime?       @default(now()) @db.Timestamp(6)
-  updated_at    DateTime?       @default(now()) @db.Timestamp(6)
-  deleted_at    DateTime?       @db.Timestamp(6)
-  logs          logs[]
-  notifications notifications[]
-  reservations  reservations[]
-  reviews       reviews[]
+enum DiscountType {
+  PERCENT
+  FIXED
 }
