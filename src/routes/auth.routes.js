@@ -95,4 +95,32 @@ router.post("/login", async (req, res) => {
   }
 });
 
+router.get("/check-username/:username", async (req, res) => {
+  try {
+    let { username } = req.params;
+
+    if (!username || username.length < 3) {
+      return res.status(400).json({
+        available: false,
+        message: "Invalid username",
+      });
+    }
+
+    username = username.trim().toLowerCase();
+
+    const existingUser = await prisma.user.findUnique({
+      where: { username },
+    });
+
+    return res.json({
+      available: !existingUser,
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+});
+
 export default router;

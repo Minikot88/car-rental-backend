@@ -285,7 +285,6 @@ enum ReservationStatus {
   EXPIRED          // หมดเวลาชำระ
 }
 
-
 enum PaymentMethod {
   CASH
   TRANSFER
