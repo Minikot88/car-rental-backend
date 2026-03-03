@@ -1,258 +1,104 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
   provider = "postgresql"
 }
 
-//////////////////////////////////////////////////////
-// USER
-//////////////////////////////////////////////////////
-
-model User {
-  id         Int      @id @default(autoincrement())
-  username   String   @unique
-  name       String
-  surname    String
-  address    String
-  phone      String   @unique
-  password   String   @db.VarChar(255)
-
-  role       Role     @default(USER)
-  status     String   @default("active")
-
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  deletedAt  DateTime?
-
-  reservations   Reservation[]
-  notifications  Notification[]
-  logs           Log[]
-  reviews        Review[]
-  discountUsages DiscountUsage[]
-
-  @@index([role])
-  @@index([status])
-  @@index([deletedAt])
-}
-
-//////////////////////////////////////////////////////
-// CAR
-//////////////////////////////////////////////////////
-
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model Car {
-  id           Int           @id @default(autoincrement())
+  id                Int           @id @default(autoincrement())
+  name              String
+  brand             String
+  model             String
+  year              Int           @db.SmallInt
+  color             String?
+  transmission      Transmission
+  seats             Int
+  category          CarCategory
+  fuelType          FuelType
+  mileage           Int?
+  pricePerDay       Decimal       @db.Decimal(10, 2)
+  deposit           Decimal?      @db.Decimal(10, 2)
+  image             String?
+  images            String[]
+  description       String?
+  features          String[]
+  status            CarStatus     @default(AVAILABLE)
+  location          String?
+  deletedAt         DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime
+  vatPercent        Decimal       @default(7) @db.Decimal(5, 2)
+  isDepositWaivable Boolean       @default(true)
+  tenantId          String        @db.Uuid
+  Tenant            Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "Car_tenant_fkey")
+  Reservation       Reservation[]
+  Review            Review[]
 
-  name         String
-  brand        String
-  model        String
-  year         Int           @db.SmallInt
-  color        String?
-
-  transmission Transmission
-  seats        Int
-  category     CarCategory
-  fuelType     FuelType
-  mileage      Int?
-
-  pricePerDay  Float
-  deposit      Float?
-
-  image        String?
-  images       String[]
-  description  String?
-  features     String[]
-
-  status       CarStatus     @default(AVAILABLE)
-  location     String?
-  deletedAt    DateTime?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-
-  reservations Reservation[]
-  reviews      Review[]
-
-  @@index([status])
   @@index([category])
   @@index([deletedAt])
-}
-
-//////////////////////////////////////////////////////
-// RESERVATION
-//////////////////////////////////////////////////////
-
-model Reservation {
-  id              Int               @id @default(autoincrement())
-
-  userId          Int
-  carId           Int
-
-  startDate       DateTime
-  endDate         DateTime
-
-  totalPrice      Float
-  status          ReservationStatus @default(PENDING)
-
-  pickupLocation  String
-  dropoffLocation String
-  pickupTime      DateTime?
-  dropoffTime     DateTime?
-
-  discountId      Int?
-  discountAmount  Float?
-
-  lockExpiresAt   DateTime?
-
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  deletedAt       DateTime?
-
-  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  car             Car               @relation(fields: [carId], references: [id], onDelete: Cascade)
-  payment         Payment?
-  discount        Discount?         @relation(fields: [discountId], references: [id])
-  
-  checkinCheckout CheckinCheckout?
-
-  @@index([carId, startDate, endDate])
-  @@index([status, lockExpiresAt])
-  @@index([carId, status, deletedAt])
-  @@index([deletedAt])
+  @@index([status, deletedAt])
+  @@index([status])
+  @@index([status], map: "car_active_idx", where: raw("(\"deletedAt\" IS NULL)"))
+  @@index([tenantId], map: "car_tenant_idx")
+  @@index([tenantId, status], map: "car_tenant_status_idx")
 }
 
 model CheckinCheckout {
-  id             Int      @id @default(autoincrement())
-  reservationId  Int      @unique
-  checkInTime    DateTime?
-  checkOutTime   DateTime?
-  fuelLevel      String?
-  mileageBefore  Int?
-  mileageAfter   Int?
-  beforePhotos   String[]
-  afterPhotos    String[]
-  damageReport   String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  id            Int         @id @default(autoincrement())
+  reservationId Int         @unique
+  checkInTime   DateTime?
+  checkOutTime  DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime
+  afterPhotos   String[]
+  beforePhotos  String[]
+  damageReport  String?
+  fuelLevel     String?
+  mileageAfter  Int?
+  mileageBefore Int?
+  Reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
 }
 
-
-
-//////////////////////////////////////////////////////
-// PAYMENT
-//////////////////////////////////////////////////////
-
-model Payment {
-  id            Int           @id @default(autoincrement())
-
-  reservationId Int           @unique
-  amount        Float
-
-  method        PaymentMethod
-  status        PaymentStatus @default(PENDING)
-
-  omiseChargeId String? @unique
-  gateway       String?
-  transactionId String?
-
-  paidAt        DateTime?
-
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-
-  reservation   Reservation   @relation(fields: [reservationId], references: [id], onDelete: Cascade)
-
-  @@index([status])
-  @@index([transactionId])
-}
-
-//////////////////////////////////////////////////////
-// DISCOUNT
-//////////////////////////////////////////////////////
-
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model Discount {
-  id            Int        @id @default(autoincrement())
-  code          String     @unique
-
+  id            Int             @id @default(autoincrement())
+  code          String          @unique
   type          DiscountType
-  value         Float
-  maxDiscount   Float?
-  minSpend      Float?
-
+  value         Decimal         @db.Decimal(10, 2)
+  maxDiscount   Decimal?        @db.Decimal(10, 2)
+  minSpend      Decimal?        @db.Decimal(10, 2)
   usageLimit    Int?
-  usedCount     Int        @default(0)
+  usedCount     Int             @default(0)
   perUserLimit  Int?
-
   startDate     DateTime?
   endDate       DateTime?
-
-  isActive      Boolean    @default(true)
-
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-
-  reservations  Reservation[]
-  usages        DiscountUsage[]
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime
+  tenantId      String          @db.Uuid
+  Tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "discount_tenant_fkey")
+  DiscountUsage DiscountUsage[]
+  Reservation   Reservation[]
 
   @@index([isActive])
   @@index([startDate, endDate])
+  @@index([tenantId], map: "discount_tenant_idx")
 }
 
 model DiscountUsage {
-  id          Int      @id @default(autoincrement())
-  discountId  Int
-  userId      Int
-  usedCount   Int      @default(0)
-
-  discount    Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         Int      @id @default(autoincrement())
+  discountId Int
+  userId     Int
+  usedCount  Int      @default(0)
+  Discount   Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  User       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([discountId, userId])
 }
-
-//////////////////////////////////////////////////////
-// REVIEW
-//////////////////////////////////////////////////////
-
-model Review {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  carId     Int
-  rating    Int
-  comment   String?
-  createdAt DateTime @default(now())
-  deletedAt DateTime?
-
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  car       Car      @relation(fields: [carId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, carId])
-  @@index([carId])
-  @@index([deletedAt])
-}
-
-//////////////////////////////////////////////////////
-// NOTIFICATION
-//////////////////////////////////////////////////////
-
-model Notification {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  message   String
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([userId, isRead])
-}
-
-//////////////////////////////////////////////////////
-// LOG
-//////////////////////////////////////////////////////
 
 model Log {
   id        Int      @id @default(autoincrement())
@@ -260,51 +106,275 @@ model Log {
   action    String
   detail    String?
   createdAt DateTime @default(now())
+  ip        String?  @db.VarChar(100)
+  userAgent String?
+  User      User?    @relation(fields: [userId], references: [id])
 
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@index([createdAt])
+  @@index([userId])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([createdAt])
+  @@index([userId, isRead])
 }
 
-//////////////////////////////////////////////////////
-// ENUMS
-//////////////////////////////////////////////////////
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model Payment {
+  id                 Int           @id @default(autoincrement())
+  reservationId      Int           @unique
+  amount             Decimal       @db.Decimal(10, 2)
+  method             PaymentMethod
+  status             PaymentStatus @default(PENDING)
+  transactionId      String?
+  gateway            String?
+  paidAt             DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime
+  omiseChargeId      String?       @unique
+  currency           String        @default("THB") @db.VarChar(10)
+  tenantId           String        @db.Uuid
+  platformCommission Decimal?      @db.Decimal(10, 2)
+  storeRevenue       Decimal?      @db.Decimal(10, 2)
+  Reservation        Reservation   @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  Tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "payment_tenant_fk")
 
-enum Role {
-  USER
-  ADMIN
+  @@index([status])
+  @@index([transactionId])
+  @@index([tenantId], map: "payment_tenant_idx")
+  @@index([tenantId, status], map: "payment_tenant_status_idx")
 }
 
-enum ReservationStatus {
-  PENDING          // สร้างแล้ว รอจ่าย
-  WAITING_PAYMENT  // ล็อครถไว้ รอชำระ
-  CONFIRMED        // จ่ายแล้ว
-  CANCELLED
-  COMPLETED
-  EXPIRED          // หมดเวลาชำระ
+model Payout {
+  id          Int       @id @default(autoincrement())
+  tenantId    String    @db.Uuid
+  amount      Decimal   @db.Decimal(12, 2)
+  status      String?   @default("PENDING") @db.VarChar(50)
+  periodStart DateTime? @db.Timestamp(6)
+  periodEnd   DateTime? @db.Timestamp(6)
+  createdAt   DateTime? @default(now()) @db.Timestamp(6)
+  Tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenantId], map: "payout_tenant_idx")
 }
 
-enum PaymentMethod {
-  CASH
-  TRANSFER
-  CREDIT_CARD
-  QR
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Plan {
+  id                      Int            @id @default(autoincrement())
+  name                    String         @unique @db.VarChar(100)
+  description             String?
+  pricePerMonth           Decimal        @default(0) @db.Decimal(10, 2)
+  pricePerYear            Decimal?       @db.Decimal(10, 2)
+  commissionPercent       Decimal        @default(0) @db.Decimal(5, 2)
+  maxCars                 Int?
+  maxReservationsPerMonth Int?
+  customDomainAllowed     Boolean?       @default(false)
+  prioritySupport         Boolean?       @default(false)
+  trialDays               Int?           @default(0)
+  isActive                Boolean?       @default(true)
+  createdAt               DateTime       @default(now()) @db.Timestamp(6)
+  updatedAt               DateTime       @default(now()) @db.Timestamp(6)
+  Subscription            Subscription[]
+
+  @@index([isActive], map: "plan_active_idx")
 }
 
-enum PaymentStatus {
-  PENDING //รอดำเนินการ
-  WAITING_VERIFY   // ลูกค้ากดยืนยันแล้ว รอแอดมินเช็ค
-  PAID //จ่ายแล้ว
-  FAILED //ล้มเหลว
-  REFUNDED //คืนเงินแล้ว
-  EXPIRED //หมดอายุแล้ว
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique @db.VarChar(255)
+  userId    Int
+  expiresAt DateTime @db.Timestamp(6)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([expiresAt])
+  @@index([userId])
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model Reservation {
+  id                Int                     @id @default(autoincrement())
+  userId            Int
+  carId             Int
+  startDate         DateTime
+  endDate           DateTime
+  totalPrice        Decimal                 @db.Decimal(10, 2)
+  status            ReservationStatus       @default(PENDING)
+  pickupLocation    String
+  dropoffLocation   String
+  pickupTime        DateTime?
+  dropoffTime       DateTime?
+  discountId        Int?
+  discountAmount    Decimal?                @db.Decimal(10, 2)
+  lockExpiresAt     DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime
+  deletedAt         DateTime?
+  subTotal          Decimal                 @default(0) @db.Decimal(10, 2)
+  vatRate           Decimal                 @default(0.07) @db.Decimal(5, 4)
+  vatAmount         Decimal                 @default(0) @db.Decimal(10, 2)
+  depositAmount     Decimal                 @default(0) @db.Decimal(10, 2)
+  isDepositFree     Boolean                 @default(false)
+  hasFlightTicket   Boolean                 @default(false)
+  flightTicketImage String?
+  cancelReason      String?
+  cancelledBy       Role?
+  tenantId          String                  @db.Uuid
+  period            Unsupported("tsrange")? @default(dbgenerated("tsrange(\"startDate\", \"endDate\")"))
+  CheckinCheckout   CheckinCheckout?
+  Payment           Payment?
+  Car               Car                     @relation(fields: [carId], references: [id], onDelete: Cascade)
+  Discount          Discount?               @relation(fields: [discountId], references: [id])
+  User              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "reservation_tenant_fk")
 
-enum Transmission {
-  AUTO
-  MANUAL
+  @@index([carId, startDate, endDate])
+  @@index([carId, status, deletedAt])
+  @@index([deletedAt])
+  @@index([hasFlightTicket])
+  @@index([isDepositFree])
+  @@index([status, deletedAt])
+  @@index([status, lockExpiresAt])
+  @@index([status], map: "reservation_active_idx", where: raw("(\"deletedAt\" IS NULL)"))
+  @@index([tenantId, createdAt], map: "reservation_tenant_created_idx")
+  @@index([tenantId], map: "reservation_tenant_idx")
+  @@index([tenantId, status], map: "reservation_tenant_status_idx")
+}
+
+model Review {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  carId     Int
+  rating    Int
+  comment   String?
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+  tenantId  String    @db.Uuid
+  Car       Car       @relation(fields: [carId], references: [id], onDelete: Cascade)
+  User      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "review_tenant_fk")
+
+  @@unique([userId, carId])
+  @@index([carId])
+  @@index([deletedAt])
+  @@index([tenantId], map: "review_tenant_idx")
+}
+
+model Store {
+  id          Int           @id @default(autoincrement())
+  name        String        @db.VarChar(255)
+  description String?
+  ownerId     Int
+  createdAt   DateTime      @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime      @default(now()) @db.Timestamp(6)
+  User        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "Store_owner_fkey")
+  StoreMember StoreMember[]
+
+  @@index([ownerId], map: "Store_owner_idx")
+}
+
+model StoreMember {
+  id        Int      @id @default(autoincrement())
+  storeId   Int
+  userId    Int
+  role      String   @default("ADMIN") @db.VarChar(50)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  Store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "StoreMember_store_fkey")
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "StoreMember_user_fkey")
+
+  @@unique([storeId, userId])
+  @@index([storeId], map: "StoreMember_store_idx")
+  @@index([userId], map: "StoreMember_user_idx")
+}
+
+model Subscription {
+  id                 Int       @id @default(autoincrement())
+  tenantId           String    @db.Uuid
+  planId             Int
+  status             String?   @default("ACTIVE") @db.VarChar(50)
+  currentPeriodStart DateTime  @db.Timestamp(6)
+  currentPeriodEnd   DateTime  @db.Timestamp(6)
+  nextBillingDate    DateTime? @db.Timestamp(6)
+  createdAt          DateTime? @default(now()) @db.Timestamp(6)
+  Plan               Plan      @relation(fields: [planId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Tenant             Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenantId], map: "subscription_tenant_idx")
+}
+
+model Tenant {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String         @db.VarChar(255)
+  subdomain    String?        @unique @db.VarChar(100)
+  customDomain String?        @db.VarChar(255)
+  planId       Int?
+  status       String?        @default("ACTIVE") @db.VarChar(50)
+  createdAt    DateTime?      @default(now()) @db.Timestamp(6)
+  updatedAt    DateTime?      @default(now()) @db.Timestamp(6)
+  Car          Car[]
+  Discount     Discount[]
+  Payment      Payment[]
+  Payout       Payout[]
+  Reservation  Reservation[]
+  Review       Review[]
+  Subscription Subscription[]
+  UserSession  UserSession[]
+}
+
+model User {
+  id            Int             @id @default(autoincrement())
+  username      String          @unique
+  name          String
+  surname       String
+  address       String
+  phone         String          @unique
+  password      String          @db.VarChar(255)
+  role          Role            @default(USER)
+  status        String          @default("active")
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime
+  deletedAt     DateTime?
+  tokenVersion  Int             @default(0)
+  DiscountUsage DiscountUsage[]
+  Log           Log[]
+  Notification  Notification[]
+  RefreshToken  RefreshToken[]
+  Reservation   Reservation[]
+  Review        Review[]
+  Store         Store[]
+  StoreMember   StoreMember[]
+  UserSession   UserSession[]
+
+  @@unique([username, deletedAt], map: "User_username_deletedAt_unique")
+  @@index([deletedAt])
+  @@index([role])
+  @@index([status])
+  @@index([tokenVersion])
+  @@index([status], map: "user_active_idx", where: raw("(\"deletedAt\" IS NULL)"))
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model UserSession {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  ip        String?  @db.VarChar(100)
+  userAgent String?
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  lastUsed  DateTime @default(now()) @db.Timestamp(6)
+  tenantId  String   @db.Uuid
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  Tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "usersession_tenant_fk")
+
+  @@index([userId])
+  @@index([tenantId], map: "usersession_tenant_idx")
 }
 
 enum CarCategory {
@@ -316,13 +386,6 @@ enum CarCategory {
   EV
 }
 
-enum FuelType {
-  GASOLINE
-  DIESEL
-  HYBRID
-  ELECTRIC
-}
-
 enum CarStatus {
   AVAILABLE
   BOOKED
@@ -332,4 +395,48 @@ enum CarStatus {
 enum DiscountType {
   PERCENT
   FIXED
+}
+
+enum FuelType {
+  GASOLINE
+  DIESEL
+  HYBRID
+  ELECTRIC
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  CREDIT_CARD
+  QR
+}
+
+enum PaymentStatus {
+  PENDING
+  WAITING_VERIFY
+  PAID
+  FAILED
+  REFUNDED
+  EXPIRED
+}
+
+enum ReservationStatus {
+  PENDING
+  WAITING_PAYMENT
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  EXPIRED
+}
+
+enum Role {
+  USER
+  ADMIN
+  STORE_ADMIN
+  SUPER_ADMIN
+}
+
+enum Transmission {
+  AUTO
+  MANUAL
 }

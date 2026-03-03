@@ -23,15 +23,16 @@ router.post("/:id/checkin", authenticate, async (req, res) => {
       damageReport,
     } = req.body;
 
-    await prisma.$transaction(async (tx) => {
+    if (!mileageBefore || isNaN(Number(mileageBefore)))
+      return res.status(400).json({ message: "Invalid mileageBefore" });
 
+    await prisma.$transaction(async (tx) => {
       const reservation = await tx.reservation.findUnique({
         where: { id: reservationId },
-        include: { checkinCheckout: true }
+        include: { checkinCheckout: true },
       });
 
-      if (!reservation)
-        throw new Error("NOT_FOUND");
+      if (!reservation) throw new Error("NOT_FOUND");
 
       if (reservation.status !== "CONFIRMED")
         throw new Error("INVALID_STATUS");
@@ -58,6 +59,13 @@ router.post("/:id/checkin", authenticate, async (req, res) => {
         },
       });
 
+      await tx.log.create({
+        data: {
+          userId: req.user.id,
+          action: "CHECKIN",
+          detail: `Reservation ${reservationId} checked in`,
+        },
+      });
     });
 
     return res.json({ message: "Check-in success" });
@@ -94,24 +102,28 @@ router.post("/:id/checkout", authenticate, async (req, res) => {
       mileageAfter,
       afterPhotos = [],
       damageCost = 0,
-      fuelFull = true
+      fuelFull = true,
     } = req.body;
 
-    if (!mileageAfter)
+    if (!mileageAfter || isNaN(Number(mileageAfter)))
       return res.status(400).json({ message: "Mileage required" });
 
     let fine = 0;
     let finalTotal = 0;
 
     await prisma.$transaction(async (tx) => {
-
       const reservation = await tx.reservation.findUnique({
         where: { id: reservationId },
-        include: { checkinCheckout: true }
+        include: {
+          checkinCheckout: true,
+          car: true,
+        },
       });
 
-      if (!reservation)
-        throw new Error("NOT_FOUND");
+      if (!reservation) throw new Error("NOT_FOUND");
+
+      if (reservation.status !== "CONFIRMED")
+        throw new Error("INVALID_STATUS");
 
       if (!reservation.checkinCheckout?.checkInTime)
         throw new Error("NO_CHECKIN");
@@ -122,6 +134,13 @@ router.post("/:id/checkout", authenticate, async (req, res) => {
       const check = reservation.checkinCheckout;
 
       ////////////////////////////////////////////////////
+      // VALIDATE MILEAGE
+      ////////////////////////////////////////////////////
+
+      if (Number(mileageAfter) < Number(check.mileageBefore))
+        throw new Error("INVALID_MILEAGE");
+
+      ////////////////////////////////////////////////////
       // FINE CALCULATION
       ////////////////////////////////////////////////////
 
@@ -129,7 +148,7 @@ router.post("/:id/checkout", authenticate, async (req, res) => {
       const kmRate = 5;
 
       const usedKm =
-        Number(mileageAfter) - Number(check.mileageBefore || 0);
+        Number(mileageAfter) - Number(check.mileageBefore);
 
       if (usedKm > freeKm) {
         fine += (usedKm - freeKm) * kmRate;
@@ -138,6 +157,8 @@ router.post("/:id/checkout", authenticate, async (req, res) => {
       if (!fuelFull) fine += 1000;
 
       fine += Number(damageCost);
+
+      if (fine < 0) fine = 0;
 
       finalTotal = reservation.totalPrice + fine;
 
@@ -151,7 +172,7 @@ router.post("/:id/checkout", authenticate, async (req, res) => {
           checkOutTime: new Date(),
           mileageAfter: Number(mileageAfter),
           afterPhotos,
-        }
+        },
       });
 
       ////////////////////////////////////////////////////
@@ -162,8 +183,8 @@ router.post("/:id/checkout", authenticate, async (req, res) => {
         where: { id: reservationId },
         data: {
           status: "COMPLETED",
-          totalPrice: finalTotal
-        }
+          totalPrice: finalTotal,
+        },
       });
 
       ////////////////////////////////////////////////////
@@ -174,16 +195,27 @@ router.post("/:id/checkout", authenticate, async (req, res) => {
         where: { id: reservation.carId },
         data: {
           status: "AVAILABLE",
-          mileage: Number(mileageAfter)
-        }
+          mileage: Number(mileageAfter),
+        },
       });
 
+      ////////////////////////////////////////////////////
+      // AUDIT LOG
+      ////////////////////////////////////////////////////
+
+      await tx.log.create({
+        data: {
+          userId: req.user.id,
+          action: "CHECKOUT",
+          detail: `Reservation ${reservationId} fine ${fine}, final ${finalTotal}`,
+        },
+      });
     });
 
     return res.json({
       message: "Checkout completed",
       fine,
-      finalTotal
+      finalTotal,
     });
 
   } catch (err) {
@@ -191,11 +223,17 @@ router.post("/:id/checkout", authenticate, async (req, res) => {
     if (err.message === "NOT_FOUND")
       return res.status(404).json({ message: "Reservation not found" });
 
+    if (err.message === "INVALID_STATUS")
+      return res.status(400).json({ message: "Invalid reservation status" });
+
     if (err.message === "NO_CHECKIN")
       return res.status(400).json({ message: "Must check-in first" });
 
     if (err.message === "ALREADY_CHECKED_OUT")
       return res.status(400).json({ message: "Already checked out" });
+
+    if (err.message === "INVALID_MILEAGE")
+      return res.status(400).json({ message: "Invalid mileage value" });
 
     console.error("CHECKOUT ERROR:", err);
     return res.status(500).json({ message: "Checkout failed" });

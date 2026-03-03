@@ -1,190 +1,132 @@
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import prisma from "../prismaClient.js";
+import {
+  generateAccessToken,
+  generateRefreshToken,
+} from "../utils/generateTokens.js";
 
-export const getAnalyticsData = async () => {
-  const now = new Date();
+export const registerUser = async (data) => {
+  const { username, password, name, surname, phone, address } = data;
 
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  const existing = await prisma.user.findFirst({
+    where: { OR: [{ username }, { phone }] },
+  });
 
-  const startOfWeek = new Date();
-  startOfWeek.setDate(startOfWeek.getDate() - 7);
+  if (existing) throw new Error("User exists");
 
-  const startOfMonth = new Date();
-  startOfMonth.setDate(1);
-  startOfMonth.setHours(0, 0, 0, 0);
+  const hashed = await bcrypt.hash(password, 12);
 
-  /* ================= PARALLEL KPI ================= */
-
-  const [
-    totalUsers,
-    totalCars,
-    totalBookings,
-    totalRevenue,
-    todayRevenue,
-    monthRevenue,
-    todayCount,
-    weekCount,
-    monthCount,
-    canceled,
-    paidAmount,
-    pendingAmount,
-    availableCars,
-    usingCars,
-  ] = await Promise.all([
-    prisma.user.count({ where: { deletedAt: null } }),
-
-    prisma.car.count({ where: { deletedAt: null } }),
-
-    prisma.reservation.count({ where: { deletedAt: null } }),
-
-    prisma.payment.aggregate({
-      _sum: { amount: true },
-      where: { status: "PAID" },
-    }),
-
-    prisma.payment.aggregate({
-      _sum: { amount: true },
-      where: {
-        status: "PAID",
-        paidAt: { not: null, gte: startOfToday },
-      },
-    }),
-
-    prisma.payment.aggregate({
-      _sum: { amount: true },
-      where: {
-        status: "PAID",
-        paidAt: { not: null, gte: startOfMonth },
-      },
-    }),
-
-    prisma.reservation.count({
-      where: {
-        createdAt: { gte: startOfToday },
-        deletedAt: null,
-      },
-    }),
-
-    prisma.reservation.count({
-      where: {
-        createdAt: { gte: startOfWeek },
-        deletedAt: null,
-      },
-    }),
-
-    prisma.reservation.count({
-      where: {
-        createdAt: { gte: startOfMonth },
-        deletedAt: null,
-      },
-    }),
-
-    prisma.reservation.count({
-      where: { status: "CANCELLED" },
-    }),
-
-    prisma.payment.aggregate({
-      _sum: { amount: true },
-      where: { status: "PAID" },
-    }),
-
-    prisma.payment.aggregate({
-      _sum: { amount: true },
-      where: {
-        status: { in: ["PENDING", "WAITING_VERIFY"] },
-      },
-    }),
-
-    prisma.car.count({
-      where: {
-        status: "AVAILABLE",
-        deletedAt: null,
-      },
-    }),
-
-    prisma.reservation.count({
-      where: {
-        status: "CONFIRMED",
-        startDate: { lte: now },
-        endDate: { gte: now },
-        deletedAt: null,
-      },
-    }),
-  ]);
-
-  /* ================= REVENUE 7 DAYS ================= */
-
-  const payments7Days = await prisma.payment.findMany({
-    where: {
-      status: "PAID",
-      paidAt: { not: null, gte: startOfWeek },
+  await prisma.user.create({
+    data: {
+      username: username.toLowerCase(),
+      password: hashed,
+      name,
+      surname,
+      phone,
+      address,
     },
-    select: { amount: true, paidAt: true },
   });
 
-  const revenueMap = {};
+  return { message: "Registered" };
+};
 
-  payments7Days.forEach((p) => {
-    const date = p.paidAt.toISOString().split("T")[0];
-    revenueMap[date] = (revenueMap[date] || 0) + p.amount;
-  });
+export const loginUser = async (data) => {
+  const { username, password } = data;
 
-  const revenueChart7Days = Object.keys(revenueMap)
-    .sort()
-    .map((date) => ({
-      date,
-      revenue: revenueMap[date],
-    }));
-
-  /* ================= MONTHLY REVENUE ================= */
-
-  const monthlyPayments = await prisma.payment.findMany({
+  const user = await prisma.user.findFirst({
     where: {
-      status: "PAID",
-      paidAt: { not: null },
+      username: username.toLowerCase(),
+      deletedAt: null,
+      status: "active",
     },
-    select: { amount: true, paidAt: true },
   });
 
-  const monthlyMap = {};
+  if (!user) throw new Error("Invalid credentials");
 
-  monthlyPayments.forEach((p) => {
-    const month = p.paidAt.toISOString().slice(0, 7);
-    monthlyMap[month] = (monthlyMap[month] || 0) + p.amount;
+  const valid = await bcrypt.compare(password, user.password);
+  if (!valid) throw new Error("Invalid credentials");
+
+  const accessToken = generateAccessToken(user);
+  const { token: refreshToken, jti } =
+    generateRefreshToken(user);
+
+  await prisma.refreshToken.create({
+    data: {
+      token: jti,
+      userId: user.id,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
   });
-
-  const revenueMonthly = Object.keys(monthlyMap)
-    .sort()
-    .map((month) => ({
-      month,
-      revenue: monthlyMap[month],
-    }));
 
   return {
-    kpiSummary: [
-      { title: "รายได้วันนี้", value: todayRevenue._sum.amount || 0 },
-      { title: "รายได้เดือนนี้", value: monthRevenue._sum.amount || 0 },
-      { title: "รถว่าง", value: availableCars },
-      { title: "รถกำลังใช้งาน", value: usingCars },
-      { title: "ผู้ใช้ทั้งหมด", value: totalUsers },
-      { title: "รถทั้งหมด", value: totalCars },
-      { title: "การจองทั้งหมด", value: totalBookings },
-      { title: "รายรับรวม", value: totalRevenue._sum.amount || 0 },
-    ],
-
-    bookingStats: {
-      today: todayCount,
-      thisWeek: weekCount,
-      thisMonth: monthCount,
-      canceled,
+    user: {
+      id: user.id,
+      username: user.username,
+      role: user.role,
     },
-
-    paymentStats: {
-      paidAmount: paidAmount._sum.amount || 0,
-      pendingAmount: pendingAmount._sum.amount || 0,
-    },
-
-    revenueChart7Days,
-    revenueMonthly,
+    accessToken,
+    refreshToken,
   };
+};
+
+export const refreshAccessToken = async (refreshToken) => {
+  const decoded = jwt.verify(
+    refreshToken,
+    process.env.JWT_REFRESH_SECRET
+  );
+
+  const stored = await prisma.refreshToken.findUnique({
+    where: { token: decoded.jti },
+  });
+
+  if (!stored) throw new Error("Invalid refresh token");
+
+  if (stored.expiresAt < new Date()) {
+    await prisma.refreshToken.delete({
+      where: { id: stored.id },
+    });
+    throw new Error("Expired refresh token");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: decoded.sub },
+  });
+
+  if (!user) throw new Error("User not found");
+
+  if (decoded.tokenVersion !== user.tokenVersion)
+    throw new Error("Token invalidated");
+
+  // rotate
+  await prisma.refreshToken.delete({
+    where: { id: stored.id },
+  });
+
+  const accessToken = generateAccessToken(user);
+  const { token: newRefreshToken, jti } =
+    generateRefreshToken(user);
+
+  await prisma.refreshToken.create({
+    data: {
+      token: jti,
+      userId: user.id,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  return { accessToken, newRefreshToken };
+};
+
+export const logoutUser = async (userId) => {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      tokenVersion: { increment: 1 },
+    },
+  });
+
+  await prisma.refreshToken.deleteMany({
+    where: { userId },
+  });
 };

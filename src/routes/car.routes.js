@@ -151,9 +151,6 @@ console.log("RESERVATIONS FOUND:", car?.reservations);
   }
 });
 
-
-
-
 /* =====================================================
    CHECK SINGLE CAR AVAILABILITY
 ===================================================== */

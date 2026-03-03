@@ -5,19 +5,22 @@ import { getAnalyticsData } from "../services/analytics.service.js";
 
 const router = express.Router();
 
+// Async wrapper (ไม่ต้อง try/catch ทุก route)
+const asyncHandler = (fn) => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+
 router.get(
   "/analytics",
   authenticate,
   authorize("ADMIN"),
-  async (req, res) => {
-    try {
-      const data = await getAnalyticsData();
-      res.json(data);
-    } catch (err) {
-      console.error("ANALYTICS ERROR:", err);
-      res.status(500).json({ message: err.message });
-    }
-  }
+  asyncHandler(async (req, res) => {
+    const data = await getAnalyticsData();
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  })
 );
 
 export default router;
